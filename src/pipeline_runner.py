@@ -5,6 +5,7 @@ import os
 import time
 from datetime import datetime
 from typing import List, Dict
+import random
 import subprocess
 
 STATE_DIR = "state"
@@ -39,6 +40,25 @@ def get_processor_version(processor_path: str) -> str:
 def load_pipeline(pipeline_path: str) -> Dict:
     with open(pipeline_path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def scan_for_network_imports(root_dirs):
+    banned = ['socket', 'requests', 'http.client', 'urllib', 'asyncio', 'aiohttp', 'urllib3']
+    import_lines = []
+    for root in root_dirs:
+        for dirpath, _, filenames in os.walk(root):
+            for fn in filenames:
+                if fn.endswith('.py'):
+                    p = os.path.join(dirpath, fn)
+                    try:
+                        with open(p, 'r', encoding='utf-8') as f:
+                            txt = f.read()
+                        for b in banned:
+                            if f"import {b}" in txt or f"from {b} import" in txt:
+                                import_lines.append((p, b))
+                    except Exception:
+                        pass
+    return import_lines
 
 
 def load_stage_state(stage_name: str) -> Dict:
@@ -109,20 +129,72 @@ def run_stage(stage: Dict, run_id: str):
     start_ts = time.time()
     result = {'stage': name, 'status': 'ok'}
 
-    try:
-        # Execute processor script via Python
-        if not os.path.exists(processor):
-            raise FileNotFoundError(f"Processor not found: {processor}")
+    # Acquire a simple lock per-stage (lock dir)
+    lock_path = os.path.join(LOCKS_DIR, f"{name}.lock")
+    lock_acquired = False
+    lock_wait_seconds = stage.get('lock', {}).get('waitSeconds', 5)
+    lock_tries = int(lock_wait_seconds) * 2
+    for i in range(lock_tries):
+        try:
+            os.mkdir(lock_path)
+            lock_acquired = True
+            break
+        except FileExistsError:
+            time.sleep(0.5)
+    if not lock_acquired:
+        raise RuntimeError(f"Failed to acquire lock for stage {name}")
 
-        env = os.environ.copy()
-        env['PIPELINE_STAGE_NAME'] = name
-        env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
-        env['PIPELINE_LINE_OFFSET'] = str(line_offset)
-        cmd = ['python', processor] + inputs
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if proc.returncode != 0:
+    try:
+        # Retry/backoff loop
+        retry_cfg = stage.get('retry', {})
+        max_attempts = int(retry_cfg.get('attempts', 1))
+        base_delay_ms = int(retry_cfg.get('baseDelayMs', 100))
+        jitter_ms = int(retry_cfg.get('jitterMs', 0))
+        simulate_fail_attempts = int(stage.get('simulateFailAttempts', 0))
+
+        attempt = int(stage_state.get('attempts', 0))
+        last_error = None
+        proc = None
+        while attempt < max_attempts:
+
+            # Prepare environment - optionally instruct processor to simulate transient failure
+            env = os.environ.copy()
+            env['PIPELINE_STAGE_NAME'] = name
+            env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
+            env['PIPELINE_LINE_OFFSET'] = str(line_offset)
+            if simulate_fail_attempts > attempt:
+                env['PIPELINE_SIMULATED_FAIL'] = '1'
+            else:
+                env.pop('PIPELINE_SIMULATED_FAIL', None)
+
+            # Execute processor script via Python
+            if not os.path.exists(processor):
+                raise FileNotFoundError(f"Processor not found: {processor}")
+
+            cmd = ['python', processor] + inputs
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            attempt += 1
+            stage_state['attempts'] = attempt
+            # On success, break
+            if proc.returncode == 0:
+                last_error = None
+                break
+            # On failure, decide if retry
+            last_error = proc.stderr.strip() or proc.stdout.strip() or 'unknown'
+            # If no retries configured, break with failure
+            if attempt >= max_attempts:
+                break
+            # Print retry info and backoff deterministically
+            print(f"[RETRY] {name} attempt {attempt}/{max_attempts}: {last_error}")
+            backoff_ms = base_delay_ms * (2 ** (attempt - 1))
+            # deterministic jitter (avoid randomness in tests)
+            jitter = (attempt * (jitter_ms // 2))
+            time.sleep((backoff_ms + jitter) / 1000.0)
+
+        # If still failed after attempts, raise
+        if proc is not None and proc.returncode != 0:
             result['status'] = 'failed'
-            result['error'] = proc.stderr.strip() or proc.stdout.strip()
+            result['error'] = last_error
             raise RuntimeError(result['error'])
 
         # Write output marker
@@ -136,6 +208,13 @@ def run_stage(stage: Dict, run_id: str):
         stage_state['lastStatus'] = 'failed'
         save_stage_state(name, stage_state)
         return {'stage': name, 'status': 'failed', 'error': str(e)}
+    finally:
+        # release lock
+        try:
+            if lock_acquired:
+                os.rmdir(lock_path)
+        except Exception:
+            pass
 
     # Update checkpoint if enabled (processor may emit progress file)
     if cp_enabled:
@@ -181,6 +260,11 @@ def main():
     args = parser.parse_args()
 
     pipeline = load_pipeline(args.pipeline)
+    # Offline guard - scan for banned network-related imports in our code
+    banned_usages = scan_for_network_imports(["src", "bin"]) 
+    if banned_usages:
+        msg = ", ".join([f"{p}:{b}" for p, b in banned_usages])
+        raise RuntimeError(f"Network imports found (offline guard): {msg}")
     run_state = {
         'runId': args.run_id,
         'pipeline': pipeline['name'],
@@ -188,6 +272,9 @@ def main():
         'startedAt': datetime.utcnow().isoformat(),
         'state': 'running'
     }
+    # compute a simple run hash and chain (tamper-evident marker)
+    run_hash = hashlib.sha256(json.dumps(run_state, sort_keys=True).encode('utf-8')).hexdigest()
+    run_state['runHash'] = run_hash
     save_run_state(args.run_id, run_state)
 
     results = []
