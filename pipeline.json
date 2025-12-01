@@ -8,6 +8,8 @@
       "inputs": ["data/input/sample.txt"],
       "outputDir": "data/work",
       "idempotency": { "enabled": true },
+      "retry": { "attempts": 2, "baseDelayMs": 10, "jitterMs": 0 },
+      "simulateFailAttempts": 1,
       "checkpoint": { "enabled": false }
     },
     {

@@ -33,11 +33,16 @@ with open(input_file, 'r', encoding='utf-8') as fin, open(output_file, 'a', enco
         fout.write(line.upper())
         processed += 1
         if processed % 50 == 0:
-            with open(progress_path, 'w', encoding='utf-8') as pf:
+            # atomic progress write
+            tmp = progress_path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as pf:
                 json.dump({'lineOffset': idx + 1}, pf)
+            os.replace(tmp, progress_path)
 
 # Final progress write
-with open(progress_path, 'w', encoding='utf-8') as pf:
+tmp = progress_path + '.tmp'
+with open(tmp, 'w', encoding='utf-8') as pf:
     json.dump({'lineOffset': line_offset + processed}, pf)
+os.replace(tmp, progress_path)
 
 print("stage_upper completed")

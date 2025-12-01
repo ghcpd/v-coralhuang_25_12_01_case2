@@ -1,0 +1,9 @@
+{
+  "runId": "inproc",
+  "pipeline": "offline_pipeline_demo",
+  "version": "1.0.0",
+  "startedAt": "2025-12-01T04:44:25.865074",
+  "state": "completed",
+  "runHash": "8c05b754a7878369177e8c86dde45ce1fecdbe8beee10f4d333d80294503f856",
+  "endedAt": "2025-12-01T04:44:25.892666"
+}

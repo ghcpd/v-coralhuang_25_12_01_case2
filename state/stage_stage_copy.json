@@ -1,5 +1,6 @@
 {
-  "lastDurationSec": 0.09555792808532715,
+  "attempts": 2,
+  "lastDurationSec": 0.0009770393371582031,
   "lastStatus": "ok",
-  "idempotencyKey": "a113f091081d36d34b8e38a1abacf9f7ae799422ab739fc7bf562d502740aea4"
+  "idempotencyKey": "b53254169b8eac2d9a85533c18966582fb0e6089a43ddd919c2eea283b05e1c4"
 }

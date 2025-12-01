@@ -18,7 +18,14 @@ for p in inputs:
     if not os.path.exists(p):
         print(f"Input missing: {p}", file=sys.stderr)
         exit(3)
-    target = os.path.join(out_dir, os.path.basename(p))
-    shutil.copyfile(p, target)
+    # Support simulated transient failure for testing
+    if os.environ.get('PIPELINE_SIMULATED_FAIL') == '1':
+        print('Simulated transient failure', file=sys.stderr)
+        exit(5)
+    basename = os.path.basename(p)
+    target = os.path.join(out_dir, basename)
+    tmp_target = target + '.tmp'
+    shutil.copyfile(p, tmp_target)
+    os.replace(tmp_target, target)
 
 print("stage_copy completed")

@@ -1,1 +1,5 @@
 Hello World\nThis is a demo pipeline.\nIt converts text to UPPERCASE.\nRepeated runs should be idempotent if unchanged.\n
+marker
+marker
+marker
+marker
