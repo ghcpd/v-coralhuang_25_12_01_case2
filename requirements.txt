@@ -1,0 +1,3 @@
+# Base version uses only standard library; placeholder for future extensions
+# Example optional libs you might add later:
+# psutil==6.0.0

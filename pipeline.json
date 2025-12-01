@@ -1,0 +1,22 @@
+{
+  "name": "offline_pipeline_demo",
+  "version": "1.0.0",
+  "stages": [
+    {
+      "name": "stage_copy",
+      "processor": "bin/stage_copy.py",
+      "inputs": ["data/input/sample.txt"],
+      "outputDir": "data/work",
+      "idempotency": { "enabled": true },
+      "checkpoint": { "enabled": false }
+    },
+    {
+      "name": "stage_upper",
+      "processor": "bin/stage_upper.py",
+      "inputs": ["data/work/sample.txt"],
+      "outputDir": "data/output",
+      "idempotency": { "enabled": true },
+      "checkpoint": { "enabled": true, "lineInterval": 50 }
+    }
+  ]
+}

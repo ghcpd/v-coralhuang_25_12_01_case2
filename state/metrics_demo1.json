@@ -1,0 +1,18 @@
+{
+  "runId": "demo1",
+  "timestamp": "2025-12-01T02:34:06.426470",
+  "stages": [
+    {
+      "stage": "stage_copy",
+      "status": "ok"
+    },
+    {
+      "stage": "stage_upper",
+      "status": "ok"
+    }
+  ],
+  "totalStages": 2,
+  "failedStages": 0,
+  "skippedStages": 0,
+  "okStages": 2
+}
