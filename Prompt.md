@@ -34,7 +34,7 @@ Resumable multi-stage processing for text/bulk files; skip repeated work; provid
 - Core: `pipeline.json`, `src/pipeline_runner.py`, `bin/stage_copy.py`, `bin/stage_upper.py`, data dirs (`input/work/output/state/locks`), `run_demo.ps1`, `.gitignore`, `requirements.txt`, `Prompt.md`
 - Tests: `tests/test_offline_pipeline.py`, `requirements-dev.txt`, `run_tests.ps1`, `run_tests.sh` (venv, install, run pytest with coverage)
 - Agent must author tests/scripts; `run_tests` exits 0 when features implemented
-
+- Add README.md with setup, run tests instructions and some necessary explanation
 ---
 ## Implementation Essentials
 - Load & validate spec; iterate stages
