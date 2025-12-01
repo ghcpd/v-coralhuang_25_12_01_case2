@@ -8,6 +8,7 @@
       "inputs": ["data/input/sample.txt"],
       "outputDir": "data/work",
       "idempotency": { "enabled": true },
+      "retry": { "maxAttempts": 3, "baseDelaySeconds": 0.1 },
       "checkpoint": { "enabled": false }
     },
     {
@@ -16,6 +17,7 @@
       "inputs": ["data/work/sample.txt"],
       "outputDir": "data/output",
       "idempotency": { "enabled": true },
+      "retry": { "maxAttempts": 2, "baseDelaySeconds": 0.1 },
       "checkpoint": { "enabled": true, "lineInterval": 50 }
     }
   ]

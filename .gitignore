@@ -1,1 +1,7 @@
+/.venv
+/.vscode
+__pycache__/
+*.py[cod]
+state/*.tmp
+state/*.json
 __pycache__/\nstate/*.tmp\n*.pyc\n

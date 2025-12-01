@@ -2,7 +2,9 @@ import argparse
 import json
 import hashlib
 import os
+import re
 import time
+import random
 from datetime import datetime
 from typing import List, Dict
 import subprocess
@@ -77,6 +79,29 @@ def compute_idempotency_key(inputs: List[str], processor_path: str) -> str:
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
+DISALLOWED_IMPORTS = ['requests', 'socket', 'http.client', 'urllib', 'asyncio']
+
+
+def check_offline_guard(root_dir: str) -> None:
+    # scan python files for any disallowed imports; raise if found
+    for folder, _, files in os.walk(root_dir):
+        for fn in files:
+            if not fn.endswith('.py'):
+                continue
+            path = os.path.join(folder, fn)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                for token in DISALLOWED_IMPORTS:
+                    # Match 'import token' or 'from token import' as an actual import statement (start of line with optional whitespace)
+                    p1 = re.compile(rf"^[\s]*import\s+{re.escape(token)}\b", re.MULTILINE)
+                    p2 = re.compile(rf"^[\s]*from\s+{re.escape(token)}\s+import\b", re.MULTILINE)
+                    if p1.search(content) or p2.search(content):
+                        raise RuntimeError(f"Offline guard: forbidden import '{token}' found in {path}")
+            except UnicodeDecodeError:
+                continue
+
+
 def run_stage(stage: Dict, run_id: str):
     name = stage['name']
     processor = stage['processor']
@@ -108,9 +133,35 @@ def run_stage(stage: Dict, run_id: str):
 
     start_ts = time.time()
     result = {'stage': name, 'status': 'ok'}
+    lock_path = os.path.join(LOCKS_DIR, f"{name}.lock")
+
+    def acquire_lock(max_wait_s: int = 5):
+        waited = 0
+        backoff = 0.05
+        while True:
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, str(os.getpid()).encode('utf-8'))
+                os.close(fd)
+                return True
+            except FileExistsError:
+                if waited >= max_wait_s:
+                    return False
+                time.sleep(backoff)
+                waited += backoff
+                backoff = min(1.0, backoff * 2)
+
+    def release_lock():
+        try:
+            if os.path.exists(lock_path):
+                os.remove(lock_path)
+        except Exception:
+            pass
 
     try:
-        # Execute processor script via Python
+        if not acquire_lock():
+            raise RuntimeError(f"Could not acquire lock for stage {name}")
+        # Execute processor script via Python with retry/backoff for transient local failures
         if not os.path.exists(processor):
             raise FileNotFoundError(f"Processor not found: {processor}")
 
@@ -118,16 +169,43 @@ def run_stage(stage: Dict, run_id: str):
         env['PIPELINE_STAGE_NAME'] = name
         env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
         env['PIPELINE_LINE_OFFSET'] = str(line_offset)
-        cmd = ['python', processor] + inputs
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if proc.returncode != 0:
-            result['status'] = 'failed'
-            result['error'] = proc.stderr.strip() or proc.stdout.strip()
-            raise RuntimeError(result['error'])
+        # Optional resource hints; processors may read these and apply limits
+        resources = stage.get('resources', {})
+        if 'cpu' in resources:
+            env['PIPELINE_CPU_LIMIT'] = str(resources.get('cpu'))
+        if 'memoryMB' in resources:
+            env['PIPELINE_MEMORY_MB'] = str(resources.get('memoryMB'))
 
-        # Write output marker
-        with open(output_marker, 'w') as f:
+        cmd = ['python', processor] + inputs
+
+        max_attempts = int(stage.get('retry', {}).get('maxAttempts', 3))
+        base_delay = float(stage.get('retry', {}).get('baseDelaySeconds', 0.1))
+        attempt = 0
+        while True:
+            attempt += 1
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            # Convention: if return code == 10 -> transient failure (retryable)
+            if proc.returncode == 0:
+                break
+            elif proc.returncode == 10 and attempt < max_attempts:
+                # transient error, backoff and retry
+                delay = base_delay * (2 ** (attempt - 1))
+                jitter = random.uniform(0, base_delay)
+                delay = delay + jitter
+                print(f"[RETRY] {name} attempt {attempt}/{max_attempts} after transient error: {proc.stderr.strip() or proc.stdout.strip()} (sleep {delay:.2f}s)")
+                time.sleep(delay)
+                continue
+            else:
+                # non-retryable or out of attempts
+                result['status'] = 'failed'
+                result['error'] = proc.stderr.strip() or proc.stdout.strip()
+                raise RuntimeError(result['error'])
+
+        # Write output marker atomically
+        tmp_marker = output_marker + ".tmp"
+        with open(tmp_marker, 'w', encoding='utf-8') as f:
             f.write(datetime.utcnow().isoformat())
+        os.replace(tmp_marker, output_marker)
 
     except Exception as e:
         # checkpoint not advanced on failure
@@ -135,6 +213,7 @@ def run_stage(stage: Dict, run_id: str):
         stage_state['lastError'] = str(e)
         stage_state['lastStatus'] = 'failed'
         save_stage_state(name, stage_state)
+        release_lock()
         return {'stage': name, 'status': 'failed', 'error': str(e)}
 
     # Update checkpoint if enabled (processor may emit progress file)
@@ -154,7 +233,19 @@ def run_stage(stage: Dict, run_id: str):
     stage_state['lastStatus'] = result['status']
     if idem_enabled:
         stage_state['idempotencyKey'] = idem_key
+    # Save stage state atomically along with running tamper-evident hash chain
+    prev_hash = stage_state.get('stateHash')
+    # Update state fields before computing hash
+    stage_state['lastDurationSec'] = duration
+    stage_state['lastStatus'] = result['status']
+    if idem_enabled:
+        stage_state['idempotencyKey'] = idem_key
+    # compute new state hash
+    content = json.dumps(stage_state, sort_keys=True, ensure_ascii=False)
+    state_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+    stage_state['stateHash'] = hashlib.sha256((state_hash + (prev_hash or '')).encode('utf-8')).hexdigest()
     save_stage_state(name, stage_state)
+    release_lock()
     print(f"[DONE] {name} in {duration:.3f}s")
     return result
 
@@ -170,8 +261,10 @@ def aggregate_metrics(run_id: str, results: List[Dict]):
         'okStages': sum(1 for r in results if r['status'] == 'ok')
     }
     path = os.path.join(STATE_DIR, f"metrics_{run_id}.json")
-    with open(path, 'w', encoding='utf-8') as f:
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def main():
@@ -180,6 +273,8 @@ def main():
     parser.add_argument('--run-id', required=True)
     args = parser.parse_args()
 
+    # Run offline guard
+    check_offline_guard('.')
     pipeline = load_pipeline(args.pipeline)
     run_state = {
         'runId': args.run_id,
