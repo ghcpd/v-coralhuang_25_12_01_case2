@@ -1,0 +1,8 @@
+{
+  "runId": "t_retry",
+  "pipeline": "flaky_demo",
+  "version": "1.0.0",
+  "startedAt": "2025-12-01T05:15:55.163496",
+  "state": "completed",
+  "endedAt": "2025-12-01T05:15:55.368336"
+}

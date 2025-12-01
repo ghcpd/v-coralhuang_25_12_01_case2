@@ -1,6 +1,6 @@
 {
-  "runId": "demo1_repeat",
-  "timestamp": "2025-12-01T02:34:24.391692",
+  "runId": "t3",
+  "timestamp": "2025-12-01T05:15:55.149698",
   "stages": [
     {
       "stage": "stage_copy",
@@ -8,11 +8,11 @@
     },
     {
       "stage": "stage_upper",
-      "status": "skipped"
+      "status": "ok"
     }
   ],
   "totalStages": 2,
   "failedStages": 0,
-  "skippedStages": 2,
-  "okStages": 0
+  "skippedStages": 1,
+  "okStages": 1
 }

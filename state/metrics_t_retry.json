@@ -1,0 +1,14 @@
+{
+  "runId": "t_retry",
+  "timestamp": "2025-12-01T05:15:55.369793",
+  "stages": [
+    {
+      "stage": "stage_flaky",
+      "status": "ok"
+    }
+  ],
+  "totalStages": 1,
+  "failedStages": 0,
+  "skippedStages": 0,
+  "okStages": 1
+}
