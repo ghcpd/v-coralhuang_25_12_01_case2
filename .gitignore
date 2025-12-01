@@ -1,1 +1,42 @@
-__pycache__/\nstate/*.tmp\n*.pyc\n
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Pipeline State & Runtime
+state/
+locks/
+data/output/
+data/work/
+*.tmp
+
+# Test Coverage
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

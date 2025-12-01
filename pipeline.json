@@ -1,22 +1,52 @@
 {
   "name": "offline_pipeline_demo",
   "version": "1.0.0",
+  "description": "Offline batch pipeline with idempotency, checkpointing, and retry logic",
   "stages": [
     {
       "name": "stage_copy",
       "processor": "bin/stage_copy.py",
       "inputs": ["data/input/sample.txt"],
       "outputDir": "data/work",
-      "idempotency": { "enabled": true },
-      "checkpoint": { "enabled": false }
+      "params": {},
+      "idempotency": { 
+        "enabled": true 
+      },
+      "checkpoint": { 
+        "enabled": false 
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseDelay": 1.0,
+        "jitter": 0.5
+      },
+      "resources": {
+        "maxMemoryMB": 512,
+        "maxCpuCores": 1
+      }
     },
     {
       "name": "stage_upper",
       "processor": "bin/stage_upper.py",
       "inputs": ["data/work/sample.txt"],
       "outputDir": "data/output",
-      "idempotency": { "enabled": true },
-      "checkpoint": { "enabled": true, "lineInterval": 50 }
+      "params": {},
+      "idempotency": { 
+        "enabled": true 
+      },
+      "checkpoint": { 
+        "enabled": true, 
+        "lineInterval": 50 
+      },
+      "retry": {
+        "maxAttempts": 3,
+        "baseDelay": 1.0,
+        "jitter": 0.5
+      },
+      "resources": {
+        "maxMemoryMB": 512,
+        "maxCpuCores": 1
+      }
     }
   ]
 }

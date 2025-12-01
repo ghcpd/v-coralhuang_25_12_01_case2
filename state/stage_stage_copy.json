@@ -1,5 +1,6 @@
 {
-  "lastDurationSec": 0.09555792808532715,
+  "lastDurationSec": 0.08289647102355957,
   "lastStatus": "ok",
-  "idempotencyKey": "a113f091081d36d34b8e38a1abacf9f7ae799422ab739fc7bf562d502740aea4"
+  "lastCompletedAt": "2025-12-01T06:17:10.546142+00:00",
+  "idempotencyKey": "832285c8fa913ecdc580beacf249c81a49c687af0de036aaa9b312ed6c7eb1b2"
 }
