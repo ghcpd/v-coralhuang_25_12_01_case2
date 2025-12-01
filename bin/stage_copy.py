@@ -20,5 +20,17 @@ for p in inputs:
         exit(3)
     target = os.path.join(out_dir, os.path.basename(p))
     shutil.copyfile(p, target)
+# Optionally simulate a transient local failure once
+transient_flag = os.environ.get('PIPELINE_SIMULATE_TRANSIENT', '0')
+state_dir = os.path.join('state')
+Path(state_dir).mkdir(parents=True, exist_ok=True)
+sim_marker = os.path.join(state_dir, 'sim_stage_copy_transient')
+if transient_flag == '1' and not os.path.exists(sim_marker):
+    # write marker and fail transiently
+    with open(sim_marker, 'w') as f:
+        f.write('transient')
+    print('Simulating transient error', file=sys.stderr)
+    # exit code 10 means transient
+    sys.exit(10)
 
 print("stage_copy completed")
