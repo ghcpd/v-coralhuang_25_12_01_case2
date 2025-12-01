@@ -1,1 +1,39 @@
-__pycache__/\nstate/*.tmp\n*.pyc\n
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+*.coverage
+
+# Pipeline state and outputs
+state/
+locks/
+data/work/*
+data/output/*
+!data/input/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
