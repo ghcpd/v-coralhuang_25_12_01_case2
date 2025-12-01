@@ -1,0 +1,8 @@
+{
+  "runId": "t_lock",
+  "pipeline": "lock_demo",
+  "version": "1.0",
+  "startedAt": "2025-12-01T05:15:55.392947",
+  "state": "failed",
+  "endedAt": "2025-12-01T05:15:55.699917"
+}

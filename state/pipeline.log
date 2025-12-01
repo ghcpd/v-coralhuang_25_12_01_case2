@@ -1,0 +1,9 @@
+{"ts": "2025-12-01T05:15:54.790259", "event": "stage_start", "stage": "stage_copy", "runId": "t1"}
+{"ts": "2025-12-01T05:15:54.894595", "event": "stage_stop", "stage": "stage_copy", "runId": "t1", "status": "ok"}
+{"ts": "2025-12-01T05:15:54.897111", "event": "stage_start", "stage": "stage_upper", "runId": "t1"}
+{"ts": "2025-12-01T05:15:54.988598", "event": "stage_stop", "stage": "stage_upper", "runId": "t1", "status": "ok"}
+{"ts": "2025-12-01T05:15:55.063970", "event": "stage_start", "stage": "stage_upper", "runId": "t3"}
+{"ts": "2025-12-01T05:15:55.147815", "event": "stage_stop", "stage": "stage_upper", "runId": "t3", "status": "ok"}
+{"ts": "2025-12-01T05:15:55.165601", "event": "stage_start", "stage": "stage_flaky", "runId": "t_retry"}
+{"ts": "2025-12-01T05:15:55.367970", "event": "stage_stop", "stage": "stage_flaky", "runId": "t_retry", "status": "ok"}
+{"ts": "2025-12-01T05:15:55.396303", "event": "stage_start", "stage": "stage_copy", "runId": "t_lock"}
