@@ -1,0 +1,377 @@
+820234338: # Task: Offline, Network-Isolated Pipeline (Concise)
+
+Design a single-machine offline batch pipeline with staged processing, idempotent execution, checkpointed recovery, local metrics/audit, resource governance, and zero network I/O.
+
+---
+## Goal
+Resumable multi-stage processing for text/bulk files; skip repeated work; provide automated validation via pytest and one-click `run_tests`.
+
+---
+## Current Problems (from backend_issue_3)
+- No unified orchestration; scripts are scattered
+- No idempotency; repeated runs duplicate or corrupt outputs
+- No checkpoints; interruptions force full reruns
+- No retry/backoff for transient local failures (locks/IO)
+- No resource quotas; local CPU/memory/IO contention
+- Weak observability; lack of structured state/metrics
+- No tamper-evident audit; hard to reconstruct actions
+- Strict offline constraint: no HTTP/RPC/DB/queues/cloud
+
+---
+## New Features
+1. JSON pipeline declaration (ordered stages, inputs/outputs)
+2. Stage idempotency: `hash(inputs + processorVersion + params)`
+3. Checkpointed recovery (line/chunk offsets)
+4. Retry with backoff (max attempts, base delay, jitter; retryable vs non-retryable)
+5. Resource quotas (CPU cores, memory cap, IO concurrency)
+6. Local IPC & file locks to prevent conflicts
+7. Audit & observability (structured logs, JSON metrics; optional hash chain)
+8. Strict offline guard (stdlib only; optional static validation)
+9. Atomic writes (tmp → `os.replace`)
+
+---
+## Deliverables
+- Core: `pipeline.json`, `src/pipeline_runner.py`, `bin/stage_copy.py`, `bin/stage_upper.py`, data dirs (`input/work/output/state/locks`), `run_demo.ps1`, `.gitignore`, `requirements.txt`, `Prompt.md`
+- Tests: `tests/test_offline_pipeline.py`, `requirements-dev.txt`, `run_tests.ps1`, `run_tests.sh` (venv, install, run pytest with coverage)
+- Agent must author tests/scripts; `run_tests` exits 0 when features implemented
+- Add README.md with setup, run tests instructions and some necessary explanation
+---
+## Implementation Essentials
+- Load & validate spec; iterate stages
+- Compute idempotency key: per-input SHA256 + processor mtime → combined SHA256
+- Skip if key matches and completion marker `outputDir/.<stage>.done` exists
+- Execute processors via subprocess (inject `PIPELINE_*` env vars)
+- Checkpoint: read/write `state/progress_<stage>.json` with `lineOffset`
+- Atomic state: write `*.tmp` then `os.replace`
+- On failure: record error and stop remaining stages
+- State files: `run_<id>.json`, `stage_<name>.json`, `metrics_<id>.json`, `progress_<stage>.json`
+- Offline guard: forbid `requests`, `socket`, `http.client`, `urllib`, networking in `asyncio`
+
+---
+## Success Criteria
+- First run produces uppercase output
+- Second run skips both stages (idempotency)
+- Simulated interruption resumes from offset (checkpoint)
+- Retry/backoff handles transient local failure deterministically
+- No networking imports present
+- State JSONs parse and reflect accurate statuses/timing
+- `run_tests.ps1` / `.sh` pass with coverage ≥ 70%
+- `run_tests` is idempotent (consecutive runs consistent, no side effects)
+
+---
+## Usage
+```powershell
+python .\src\pipeline_runner.py --pipeline .\pipeline.json --run-id demo1
+python .\src\pipeline_runner.py --pipeline .\pipeline.json --run-id demo2  # skip
+
+./run_tests.ps1  # one-click tests
+```
+
+---
+## Maintenance
+- Use tmp+replace pattern for all state writes
+- Only write completion marker on success
+- Keep implementation aligned with this spec; preserve offline guarantees
+
+
+
+GitHub Copilot: Optimizing tool selection...
+
+Created 5 todos
+
+Starting: *Review existing code and specs* (1/5)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/src/pipeline_runner.py)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/bin/stage_copy.py)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/bin/stage_upper.py)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/tests/test_offline_pipeline.py)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/pipeline.json)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/data/input/sample.txt)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/run_demo.ps1)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/run_tests.ps1)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/run_tests.sh)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/requirements.txt)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/requirements-dev.txt)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/Prompt.md)
+
+Completed: *Review existing code and specs* (1/5)
+
+Starting: *Design pipeline runner updates* (2/5)
+
+Completed: *Design pipeline runner updates* (2/5)
+
+Starting: *Implement pipeline runner and stages* (3/5)
+
+Searched for regex `requests|http\.client|urllib|socket|asyncio|httpx|urllib3` (`**/*.py`), no results
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/src/pipeline_runner.py)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Created [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/.gitignore)
+
+Continue to iterate?
+[object Object]
+
+Made changes.
+
+820234338: @agent Continue: "Continue to iterate?"
+
+GitHub Copilot: Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2)
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/.gitignore)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Created [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/README.md)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Configuring a Python Environment
+Completed with input: {
+  "resourcePath": "C:\\Bug_Bash\\25_12_01\\v-coralhuang_25_12_01_case2"
+}
+
+Using "Select a Python Environment"
+Completed with input: {
+  "resourcePath": "C:\\Bug_Bash\\25_12_01\\v-coralhuang_25_12_01_case2"
+}
+
+Ran `pylanceRunCodeSnippet` 
+Completed with input: {
+  "workspaceRoot": "C:\\Bug_Bash\\25_12_01\\v-coralhuang_25_12_01_case2",
+  "codeSnippet": "import compileall, sys\nok = compileall.compile_dir('src', quiet=1) and compileall.compile_dir('bin', quiet=1) and compileall.compile_dir('tests', quiet=1)\nsys.exit(0 if ok else 1)\n"
+}
+
+Completed: *Implement pipeline runner and stages* (3/5)
+
+Starting: *Implement tests and scripts* (4/5)
+
+Completed: *Implement tests and scripts* (4/5)
+
+Starting: *Validate with pytest* (5/5)
+
+Discovering tests...
+
+Ran terminal command: ./run_tests.ps1
+
+Created [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/.coveragerc)
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Ran terminal command: ./run_tests.ps1
+
+Using "Apply Patch"
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/tests/test_offline_pipeline.py#1-1), lines 1 to 41
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Ran terminal command: ./run_tests.ps1
+
+Searched for text `sitecustomize` (`**/.venv/Lib/site-packages/**`), no results
+
+Ran terminal command: ls .venv\Lib\site-packages | Select-String 'coverage'
+
+Searched for text `process_startup` (`**/.venv/Lib/site-packages/coverage/**`), no results
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Read [](file:///c%3A/Bug_Bash/25_12_01/v-coralhuang_25_12_01_case2/tests/test_offline_pipeline.py#1-1), lines 1 to 31
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Ran terminal command: ./run_tests.ps1
+
+Using "Apply Patch"
+
+
+```
+
+```
+
+
+Ran terminal command: ./run_tests.ps1
+
+Completed: *Validate with pytest* (5/5)
+
+## ✅ Actions
+
+- Implemented robust offline batch pipeline orchestrator with idempotency, checkpoints, retries/backoff, resource hints, file locks, audit hash-chain, offline guard, and atomic state writes.
+- Upgraded stage processors for atomic operations, checkpointing, transient failure simulation, and optional env capture.
+- Enhanced tests to cover idempotency, checkpoint resume, retry logic, offline guard, and resource propagation; enabled accurate coverage via in-process runner invocation.
+- Added .coveragerc, improved .gitignore, and created README.md with setup/run instructions.
+
+---
+
+## 🔧 Files Changed
+
+| File | Purpose |
+|---|---|
+| pipeline_runner.py | Core orchestrator: validation, offline guard (AST), idempotency, checkpoints, retries/backoff, resource hints, file locks, audit log, atomic state writes, `run_pipeline` API |
+| stage_copy.py | Atomic copy, offline guard, optional env capture |
+| stage_upper.py | Checkpointing with atomic progress, transient failure simulation, offline guard, optional env capture |
+| pipeline.json | Updated spec with retry/resource/params/offlineGuard/lock |
+| test_offline_pipeline.py | Comprehensive coverage of new features; in-process runner execution for coverage |
+| .gitignore | Ignore state/locks/data outputs/venv/caches |
+| .coveragerc | Coverage config with parallel support |
+| run_tests.ps1, run_tests.sh | Export `COVERAGE_PROCESS_START`, pass `--cov-config` |
+| README.md | Usage, features, and test instructions |
+
+---
+
+## 🧪 Test Results
+
+- **Command:** run_tests.ps1
+- **Outcome:** ✅ **PASS**
+- **Coverage:** **84%** (pipeline_runner.py)
+- **Notes:** Deprecation warnings about `datetime.utcnow()` (non-blocking)
+
+---
+
+## ▶️ How to Run
+
+```powershell
+# Demo
+python .\src\pipeline_runner.py --pipeline .\pipeline.json --run-id demo1
+python .\src\pipeline_runner.py --pipeline .\pipeline.json --run-id demo2  # idempotent skip
+
+# Tests
+./run_tests.ps1   # Windows
+./run_tests.sh    # Linux/Mac
+```
+
+---
+
+## 📁 Key Behaviors
+
+- **Idempotency:** `sha256(inputs + processor mtime + params)` + `.<stage>.done` marker for skip.
+- **Checkpointing:** `state/progress_<stage>.json` (`lineOffset`) read & updated atomically.
+- **Retries/Backoff:** Configurable attempts, base/max delay, jitter, retryable exit codes.
+- **Resource Hints:** `PIPELINE_RESOURCES_*` and `OMP_NUM_THREADS` propagated.
+- **File Locks:** `locks/<stage>.lock` protects concurrent runs.
+- **Audit:** `state/audit_<run>.jsonl` with hash chain.
+- **Offline Guard:** AST scan blocks `requests`, `socket`, `urllib`, etc.
+- **Atomic Writes:** Tmp + `os.replace` for state/markers/progress.
+
+---
+
+## 📌 Notes / Follow-ups
+
+- Warnings: consider switching to `datetime.now(datetime.UTC)` if desired.
+- Stage env dumps gated by `PIPELINE_DEBUG_ENV=1` (handy for tests/debugging).
+
+---
+
+**Completion:** All requested features implemented, tests pass (84% coverage), offline guarantees enforced.
+
+Made changes.

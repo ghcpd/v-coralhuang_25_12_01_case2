@@ -1,6 +1,6 @@
 {
   "name": "offline_pipeline_demo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "stages": [
     {
       "name": "stage_copy",
@@ -8,7 +8,12 @@
       "inputs": ["data/input/sample.txt"],
       "outputDir": "data/work",
       "idempotency": { "enabled": true },
-      "checkpoint": { "enabled": false }
+      "checkpoint": { "enabled": false },
+      "retry": { "maxAttempts": 1, "baseDelaySeconds": 1.0, "jitterSeconds": 0.1 },
+      "resources": { "cpuCores": 1, "memoryMB": 128, "ioConcurrency": 1 },
+      "params": {},
+      "offlineGuard": true,
+      "useLock": true
     },
     {
       "name": "stage_upper",
@@ -16,7 +21,19 @@
       "inputs": ["data/work/sample.txt"],
       "outputDir": "data/output",
       "idempotency": { "enabled": true },
-      "checkpoint": { "enabled": true, "lineInterval": 50 }
+      "checkpoint": { "enabled": true, "lineInterval": 50 },
+      "retry": {
+        "maxAttempts": 3,
+        "baseDelaySeconds": 0.1,
+        "maxDelaySeconds": 1.0,
+        "jitterSeconds": 0.05,
+        "retryableExitCodes": [75],
+        "seed": 42
+      },
+      "resources": { "cpuCores": 1, "memoryMB": 128, "ioConcurrency": 1 },
+      "params": {},
+      "offlineGuard": true,
+      "useLock": true
     }
   ]
 }
