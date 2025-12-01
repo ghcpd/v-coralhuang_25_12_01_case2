@@ -11,4 +11,5 @@ fi
 "$python_bin" -m pip install --upgrade pip
 "$python_bin" -m pip install -r "$root/requirements-dev.txt"
 
-"$python_bin" -m pytest -q --cov="$root/src" --cov-report=term-missing
+export COVERAGE_PROCESS_START="$root/.coveragerc"
+"$python_bin" -m pytest -q --cov="$root/src" --cov-config="$root/.coveragerc" --cov-report=term-missing
