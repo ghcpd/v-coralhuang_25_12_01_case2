@@ -1,1 +1,19 @@
-__pycache__/\nstate/*.tmp\n*.pyc\n
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+
+# State and locks
+state/*.json
+state/*.jsonl
+state/*.tmp
+locks/*.lock
+
+# Data outputs
+data/output/
+data/work/
+
+# Coverage
+.coverage*
+htmlcov/

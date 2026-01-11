@@ -1,5 +1,16 @@
 {
-  "lastDurationSec": 0.09724116325378418,
+  "history": [
+    {
+      "attempt": 1,
+      "startedAt": "2025-12-01T06:19:40.264277",
+      "stdout": "stage_upper completed",
+      "stderr": "",
+      "status": "ok",
+      "endedAt": "2025-12-01T06:19:40.381464"
+    }
+  ],
+  "lastDurationSec": 0.1186532974243164,
   "lastStatus": "ok",
-  "idempotencyKey": "a5b2f0381240d057faa19fc2106b8102a66c18beeb3832abe7bb60cfb23bfdc9"
+  "attempts": 1,
+  "idempotencyKey": "408473e27ff4a70960e243ff299e4ac92d50476f5c47101a358d6ee6a71fed36"
 }
