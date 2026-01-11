@@ -3,6 +3,7 @@ import json
 import hashlib
 import os
 import time
+import random
 from datetime import datetime
 from typing import List, Dict
 import subprocess
@@ -107,6 +108,32 @@ def run_stage(stage: Dict, run_id: str):
                 line_offset = 0
 
     start_ts = time.time()
+    # Append audit log (json-lines)
+    log_path = os.path.join(STATE_DIR, 'pipeline.log')
+    try:
+        with open(log_path, 'a', encoding='utf-8') as lf:
+            lf.write(json.dumps({'ts': datetime.utcnow().isoformat(), 'event': 'stage_start', 'stage': name, 'runId': run_id}) + "\n")
+    except Exception:
+        pass
+    # Acquire stage lock to prevent concurrent runs
+    lock_dir = os.path.join(LOCKS_DIR, f"{name}.lock")
+    lock_acquired = False
+    lock_attempts = 0
+    while lock_attempts < 3:
+        try:
+            os.mkdir(lock_dir)
+            lock_acquired = True
+            break
+        except FileExistsError:
+            lock_attempts += 1
+            time.sleep(0.1)
+    if not lock_acquired:
+        err = f"Failed to acquire lock for stage {name} after {lock_attempts} attempts"
+        print(f"[LOCK_FAIL] {name}: {err}")
+        stage_state['lastError'] = err
+        stage_state['lastStatus'] = 'failed'
+        save_stage_state(name, stage_state)
+        return {'stage': name, 'status': 'failed', 'error': err}
     result = {'stage': name, 'status': 'ok'}
 
     try:
@@ -118,12 +145,39 @@ def run_stage(stage: Dict, run_id: str):
         env['PIPELINE_STAGE_NAME'] = name
         env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
         env['PIPELINE_LINE_OFFSET'] = str(line_offset)
-        cmd = ['python', processor] + inputs
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if proc.returncode != 0:
+        env['PIPELINE_RUN_ID'] = run_id
+        # Retry/backoff logic
+        retry_cfg = stage.get('retry', {})
+        max_attempts = int(retry_cfg.get('maxAttempts', 1))
+        base_delay = float(retry_cfg.get('baseDelay', 0.2))
+        jitter = float(retry_cfg.get('jitter', 0.1))
+        attempt = 0
+        last_err = None
+        while attempt < max_attempts:
+            attempt += 1
+            cmd = ['python', processor] + inputs
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            if proc.returncode == 0:
+                last_err = None
+                break
+            last_err = proc.stderr.strip() or proc.stdout.strip()
+            if attempt < max_attempts:
+                # Exponential backoff
+                delay = base_delay * (2 ** (attempt - 1))
+                # Deterministic jitter: seed if env variable PIPELINE_DETERMINISTIC_JITTER set
+                try:
+                    if os.environ.get('PIPELINE_DETERMINISTIC_JITTER') == '1':
+                        r = random.Random(0)
+                        jitter_amt = r.uniform(0, jitter)
+                    else:
+                        jitter_amt = random.uniform(0, jitter)
+                except Exception:
+                    jitter_amt = 0
+                time.sleep(delay + jitter_amt)
+        if last_err is not None:
             result['status'] = 'failed'
-            result['error'] = proc.stderr.strip() or proc.stdout.strip()
-            raise RuntimeError(result['error'])
+            result['error'] = last_err
+            raise RuntimeError(last_err)
 
         # Write output marker
         with open(output_marker, 'w') as f:
@@ -135,6 +189,18 @@ def run_stage(stage: Dict, run_id: str):
         stage_state['lastError'] = str(e)
         stage_state['lastStatus'] = 'failed'
         save_stage_state(name, stage_state)
+        # Ensure lock is released on failure
+        try:
+            if lock_acquired:
+                os.rmdir(lock_dir)
+        except Exception:
+            pass
+        # Audit stage stop with failure
+        try:
+            with open(log_path, 'a', encoding='utf-8') as lf:
+                lf.write(json.dumps({'ts': datetime.utcnow().isoformat(), 'event': 'stage_stop', 'stage': name, 'runId': run_id, 'status': 'failed', 'error': str(e)}) + "\n")
+        except Exception:
+            pass
         return {'stage': name, 'status': 'failed', 'error': str(e)}
 
     # Update checkpoint if enabled (processor may emit progress file)
@@ -155,6 +221,18 @@ def run_stage(stage: Dict, run_id: str):
     if idem_enabled:
         stage_state['idempotencyKey'] = idem_key
     save_stage_state(name, stage_state)
+    # Audit stage stop success
+    try:
+        with open(log_path, 'a', encoding='utf-8') as lf:
+            lf.write(json.dumps({'ts': datetime.utcnow().isoformat(), 'event': 'stage_stop', 'stage': name, 'runId': run_id, 'status': 'ok'}) + "\n")
+    except Exception:
+        pass
+    # Release lock
+    try:
+        if lock_acquired:
+            os.rmdir(lock_dir)
+    except Exception:
+        pass
     print(f"[DONE] {name} in {duration:.3f}s")
     return result
 

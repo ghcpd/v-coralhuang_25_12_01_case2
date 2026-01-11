@@ -1,0 +1,8 @@
+{
+  "runId": "t2",
+  "pipeline": "offline_pipeline_demo",
+  "version": "1.0.0",
+  "startedAt": "2025-12-01T05:15:55.020788",
+  "state": "completed",
+  "endedAt": "2025-12-01T05:15:55.045643"
+}
