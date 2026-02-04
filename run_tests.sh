@@ -1,14 +1,38 @@
-#!/usr/bin/env bash
-set -euo pipefail
-root="$(cd "$(dirname "$0")" && pwd)"
-venv="$root/.venv"
-python_bin="$venv/bin/python"
+#!/bin/bash
+# Offline Pipeline Tests (Linux/macOS)
+# Sets up venv, installs deps, runs pytest with coverage
 
-if [[ ! -x "$python_bin" ]]; then
-  python3 -m venv "$venv"
+set -e
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$ROOT/.venv"
+PYTHON="$VENV/bin/python"
+PIP="$VENV/bin/pip"
+
+echo "=== Offline Pipeline Tests ==="
+
+# Create virtual environment if needed
+if [ ! -f "$PYTHON" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv "$VENV"
 fi
 
-"$python_bin" -m pip install --upgrade pip
-"$python_bin" -m pip install -r "$root/requirements-dev.txt"
+# Upgrade pip and install dependencies
+echo "Installing dependencies..."
+"$PIP" install --upgrade pip
+"$PIP" install -r "$ROOT/requirements-dev.txt"
 
-"$python_bin" -m pytest -q --cov="$root/src" --cov-report=term-missing
+# Run tests with coverage
+echo "Running tests with coverage..."
+"$PYTHON" -m pytest -q --cov="$ROOT/src" --cov-report=term-missing "$ROOT/tests"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo ""
+    echo "=== All tests passed ==="
+    exit 0
+else
+    echo ""
+    echo "=== Tests failed ==="
+    exit 1
+fi

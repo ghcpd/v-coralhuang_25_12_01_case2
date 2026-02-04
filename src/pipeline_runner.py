@@ -3,9 +3,33 @@ import json
 import hashlib
 import os
 import time
-from datetime import datetime
+import random
+import sys
+from datetime import datetime, timezone
 from typing import List, Dict
 import subprocess
+
+# Offline guard: forbid network imports
+FORBIDDEN_IMPORTS = {
+    'requests',
+    'socket',
+    'http.client',
+    'urllib',
+    'urllib.request',
+    'urllib.parse',
+    'urllib.error',
+    'http',
+    'asyncio',
+    'aiohttp',
+    'paramiko',
+    'ftplib',
+    'smtplib',
+    'poplib',
+    'imaplib',
+    'telnetlib',
+    'xmlrpc',
+    'xmlrpc.client',
+}
 
 STATE_DIR = "state"
 LOCKS_DIR = "locks"
@@ -15,6 +39,21 @@ os.makedirs(LOCKS_DIR, exist_ok=True)
 os.makedirs("data/input", exist_ok=True)
 os.makedirs("data/work", exist_ok=True)
 os.makedirs("data/output", exist_ok=True)
+
+
+def check_offline_compliance(processor_path: str):
+    """Scan processor script for forbidden imports."""
+    try:
+        with open(processor_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        for imp in FORBIDDEN_IMPORTS:
+            if f"import {imp}" in content or f"from {imp}" in content:
+                raise RuntimeError(f"Offline violation: forbidden import '{imp}' in {processor_path}")
+    except Exception as e:
+        if "Offline violation" in str(e):
+            raise
+        # Silently skip if file doesn't exist or can't be read (may not be a Python file)
+        pass
 
 
 def sha256_file(path: str) -> str:
@@ -77,6 +116,50 @@ def compute_idempotency_key(inputs: List[str], processor_path: str) -> str:
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 
+def acquire_lock(stage_name: str, timeout: int = 5) -> str:
+    """Acquire a file lock for stage execution. Returns lock file path."""
+    lock_file = os.path.join(LOCKS_DIR, f"{stage_name}.lock")
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            # Try to create lock file exclusively
+            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()}\n".encode())
+            os.close(fd)
+            return lock_file
+        except FileExistsError:
+            time.sleep(0.1)
+    raise RuntimeError(f"Could not acquire lock for {stage_name} within {timeout}s")
+
+
+def release_lock(lock_file: str):
+    """Release a file lock."""
+    try:
+        os.remove(lock_file)
+    except Exception:
+        pass
+
+
+def retry_with_backoff(fn, max_attempts: int = 3, base_delay: float = 0.5, jitter: bool = True):
+    """Retry function with exponential backoff."""
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_error = e
+            if attempt < max_attempts:
+                delay = base_delay * (2 ** (attempt - 1))
+                if jitter:
+                    delay += random.uniform(0, delay * 0.1)
+                print(f"[RETRY] Attempt {attempt}/{max_attempts} failed. Retrying in {delay:.2f}s...")
+                time.sleep(delay)
+            else:
+                print(f"[RETRY] All {max_attempts} attempts exhausted.")
+    if last_error:
+        raise last_error
+
+
 def run_stage(stage: Dict, run_id: str):
     name = stage['name']
     processor = stage['processor']
@@ -84,6 +167,9 @@ def run_stage(stage: Dict, run_id: str):
     output_dir = stage['outputDir']
     os.makedirs(output_dir, exist_ok=True)
     stage_state = load_stage_state(name)
+
+    # Offline guard
+    check_offline_compliance(processor)
 
     idem_enabled = stage.get('idempotency', {}).get('enabled', False)
     idem_key = compute_idempotency_key(inputs, processor) if idem_enabled else None
@@ -108,34 +194,50 @@ def run_stage(stage: Dict, run_id: str):
 
     start_ts = time.time()
     result = {'stage': name, 'status': 'ok'}
+    lock_file = None
 
     try:
-        # Execute processor script via Python
+        # Acquire lock for stage execution
+        lock_file = acquire_lock(name, timeout=10)
+
+        # Execute processor script via Python with retry/backoff
         if not os.path.exists(processor):
             raise FileNotFoundError(f"Processor not found: {processor}")
 
-        env = os.environ.copy()
-        env['PIPELINE_STAGE_NAME'] = name
-        env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
-        env['PIPELINE_LINE_OFFSET'] = str(line_offset)
-        cmd = ['python', processor] + inputs
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        if proc.returncode != 0:
-            result['status'] = 'failed'
-            result['error'] = proc.stderr.strip() or proc.stdout.strip()
-            raise RuntimeError(result['error'])
+        def execute_processor():
+            env = os.environ.copy()
+            env['PIPELINE_STAGE_NAME'] = name
+            env['PIPELINE_OUTPUT_DIR'] = os.path.abspath(output_dir)
+            env['PIPELINE_LINE_OFFSET'] = str(line_offset)
+            cmd = ['python', processor] + inputs
+            proc = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+            if proc.returncode != 0:
+                result['status'] = 'failed'
+                result['error'] = proc.stderr.strip() or proc.stdout.strip()
+                raise RuntimeError(result['error'])
+            return proc
 
-        # Write output marker
-        with open(output_marker, 'w') as f:
-            f.write(datetime.utcnow().isoformat())
+        retry_with_backoff(execute_processor, max_attempts=3, base_delay=0.5)
+
+        # Write output marker atomically (tmp → replace)
+        marker_tmp = output_marker + ".tmp"
+        with open(marker_tmp, 'w') as f:
+            f.write(datetime.now(timezone.utc).isoformat())
+        os.replace(marker_tmp, output_marker)
 
     except Exception as e:
         # checkpoint not advanced on failure
         print(f"[FAIL] {name}: {e}")
+        result['status'] = 'failed'
+        result['error'] = str(e)
         stage_state['lastError'] = str(e)
         stage_state['lastStatus'] = 'failed'
+        # Save state atomically
         save_stage_state(name, stage_state)
-        return {'stage': name, 'status': 'failed', 'error': str(e)}
+        return result
+    finally:
+        if lock_file:
+            release_lock(lock_file)
 
     # Update checkpoint if enabled (processor may emit progress file)
     if cp_enabled:
@@ -144,8 +246,11 @@ def run_stage(stage: Dict, run_id: str):
             try:
                 with open(progress_file, 'r', encoding='utf-8') as pf:
                     prog = json.load(pf)
-                with open(cp_path, 'w', encoding='utf-8') as cf:
+                # Write checkpoint atomically
+                cp_tmp = cp_path + ".tmp"
+                with open(cp_tmp, 'w', encoding='utf-8') as cf:
                     json.dump({'lineOffset': prog.get('lineOffset', 0)}, cf)
+                os.replace(cp_tmp, cp_path)
             except Exception:
                 pass
 
@@ -154,6 +259,7 @@ def run_stage(stage: Dict, run_id: str):
     stage_state['lastStatus'] = result['status']
     if idem_enabled:
         stage_state['idempotencyKey'] = idem_key
+    # Save state atomically
     save_stage_state(name, stage_state)
     print(f"[DONE] {name} in {duration:.3f}s")
     return result
@@ -162,7 +268,7 @@ def run_stage(stage: Dict, run_id: str):
 def aggregate_metrics(run_id: str, results: List[Dict]):
     metrics = {
         'runId': run_id,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'stages': results,
         'totalStages': len(results),
         'failedStages': sum(1 for r in results if r['status'] == 'failed'),
@@ -170,8 +276,10 @@ def aggregate_metrics(run_id: str, results: List[Dict]):
         'okStages': sum(1 for r in results if r['status'] == 'ok')
     }
     path = os.path.join(STATE_DIR, f"metrics_{run_id}.json")
-    with open(path, 'w', encoding='utf-8') as f:
+    tmp = path + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(metrics, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def main():
@@ -180,30 +288,46 @@ def main():
     parser.add_argument('--run-id', required=True)
     args = parser.parse_args()
 
-    pipeline = load_pipeline(args.pipeline)
+    try:
+        pipeline = load_pipeline(args.pipeline)
+    except Exception as e:
+        print(f"[FATAL] Failed to load pipeline: {e}", file=sys.stderr)
+        sys.exit(1)
+
     run_state = {
         'runId': args.run_id,
         'pipeline': pipeline['name'],
         'version': pipeline.get('version'),
-        'startedAt': datetime.utcnow().isoformat(),
+        'startedAt': datetime.now(timezone.utc).isoformat(),
         'state': 'running'
     }
     save_run_state(args.run_id, run_state)
 
     results = []
-    for stage in pipeline['stages']:
-        res = run_stage(stage, args.run_id)
-        results.append(res)
-        if res['status'] == 'failed':
-            run_state['state'] = 'failed'
-            break
-    else:
-        run_state['state'] = 'completed'
+    try:
+        for stage in pipeline['stages']:
+            res = run_stage(stage, args.run_id)
+            results.append(res)
+            if res['status'] == 'failed':
+                run_state['state'] = 'failed'
+                break
+        else:
+            run_state['state'] = 'completed'
+    except Exception as e:
+        print(f"[FATAL] Pipeline execution failed: {e}", file=sys.stderr)
+        run_state['state'] = 'failed'
+        sys.exit(1)
 
-    run_state['endedAt'] = datetime.utcnow().isoformat()
+    run_state['endedAt'] = datetime.now(timezone.utc).isoformat()
     save_run_state(args.run_id, run_state)
     aggregate_metrics(args.run_id, results)
     print(f"Run {args.run_id} state: {run_state['state']}")
+
+    # Exit with appropriate code
+    if run_state['state'] == 'completed':
+        sys.exit(0)
+    else:
+        sys.exit(1)
 
 
 if __name__ == '__main__':
